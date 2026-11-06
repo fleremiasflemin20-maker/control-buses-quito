@@ -1,0 +1,19 @@
+{
+  "name": "control-buses-quito",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "description": "Centro de control de flota de buses de Quito (demo con datos simulados)",
+  "scripts": {
+    "start": "node server/server.js",
+    "dev": "node --watch server/server.js",
+    "db:reset": "node tools/reset-db.mjs",
+    "pages:build": "node tools/build-pages.mjs"
+  },
+  "dependencies": {
+    "@electric-sql/pglite": "^0.5.15"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
