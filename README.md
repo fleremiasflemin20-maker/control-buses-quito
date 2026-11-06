@@ -10,7 +10,8 @@ los datos reales consiste en reemplazar la capa de simulación.
 
 ## Demo en línea (GitHub Pages)
 
-**https://fleremiasflemin20-maker.github.io/control-buses-quito/**
+**https://fleremiasflemin20-maker.github.io/control-buses-quito/** ·
+[repositorio](https://github.com/fleremiasflemin20-maker/control-buses-quito)
 
 Usuario `supervisor` · contraseña `supervisor123` (también `operador` y `gerencia`).
 
