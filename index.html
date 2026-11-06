@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Centro de Control de Flota · Quito — Demo</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='8' fill='%23ffb020'/%3E%3Crect x='7' y='9' width='18' height='13' rx='3' fill='%230b1220'/%3E%3Crect x='9' y='11' width='14' height='5' rx='1.5' fill='%237dd3fc'/%3E%3Ccircle cx='11' cy='24' r='2' fill='%230b1220'/%3E%3Ccircle cx='21' cy='24' r='2' fill='%230b1220'/%3E%3C/svg%3E" />
+  <link rel="stylesheet" href="vendor/leaflet.css" />
+  <link rel="stylesheet" href="styles.css" />
+  <meta name="description" content="Demo estática del centro de control de flota de Quito: mapa, cámaras simuladas, alertas, paradas e histórico." />
+</head>
+<body class="is-locked">
+  <div class="app">
+    <header class="topbar">
+      <div class="brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" width="26" height="26"><rect x="5" y="6" width="22" height="16" rx="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 14h22" stroke="currentColor" stroke-width="2"/><circle cx="10.5" cy="24" r="2" fill="currentColor"/><circle cx="21.5" cy="24" r="2" fill="currentColor"/><path d="M9 18v3M23 18v3" stroke="currentColor" stroke-width="2"/></svg>
+        </div>
+        <div class="brand-text">
+          <h1>Centro de Control de Flota</h1>
+          <p>Quito · Sistema Integrado de Transporte</p>
+        </div>
+        <span class="demo-badge" title="Todos los datos se generan con un simulador">DEMO · datos simulados</span>
+      </div>
+
+      <div class="kpis" id="kpis"></div>
+
+      <div class="clock">
+        <div class="clock-time" id="clock">--:--:--</div>
+        <div class="clock-date" id="clock-date">—</div>
+      </div>
+
+      <div class="user-menu" id="user-menu">
+        <div class="avatar" id="user-initials">··</div>
+        <div class="user-meta"><b id="user-name">Sin sesión</b><span id="user-role">—</span></div>
+        <button class="icon-btn" id="open-settings" title="Claves de mapas y tráfico" aria-label="Configuración de claves">
+          <svg viewBox="0 0 24 24" width="14" height="14"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
+        <button class="icon-btn" id="logout" title="Cerrar sesión" aria-label="Cerrar sesión">
+          <svg viewBox="0 0 24 24" width="14" height="14"><path d="M15 5H6v14h9M13 12h7m0 0-3-3m3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </button>
+      </div>
+    </header>
+
+    <nav class="tabs">
+      <button class="tab active" data-tab="ops">Operación</button>
+      <button class="tab" data-tab="stops">Paradas</button>
+      <button class="tab" data-tab="reports">Reportes</button>
+      <button class="tab" data-tab="history">Histórico</button>
+      <div class="tabs-right">
+        <span class="live-pill" id="live-pill"><i></i><span id="live-text">Conectando…</span></span>
+        <span class="sim-pill" id="sim-pill">x25 tiempo simulado</span>
+      </div>
+    </nav>
+
+    <main class="view" id="view-ops">
+      <aside class="col-left">
+        <section class="panel routes-panel">
+          <header class="panel-head">
+            <h2>Rutas</h2>
+            <span class="muted" id="routes-count"></span>
+          </header>
+          <div class="route-list" id="route-list"></div>
+        </section>
+
+        <section class="panel fleet-panel">
+          <header class="panel-head">
+            <h2>Flota</h2>
+            <span class="muted" id="fleet-count"></span>
+          </header>
+          <div class="fleet-tools">
+            <label class="search">
+              <svg viewBox="0 0 24 24" width="14" height="14" aria-hidden="true"><circle cx="11" cy="11" r="7" fill="none" stroke="currentColor" stroke-width="2"/><path d="m16.5 16.5 4 4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+              <input id="fleet-search" type="search" placeholder="Buscar bus, placa o conductor" autocomplete="off" />
+            </label>
+            <div class="chips" id="fleet-chips">
+              <button class="chip active" data-filter="all">Todos</button>
+              <button class="chip" data-filter="alert">Con alerta</button>
+            </div>
+          </div>
+          <div class="bus-list" id="bus-list"></div>
+        </section>
+      </aside>
+
+      <section class="col-map">
+        <div class="panel map-panel">
+          <div class="map-head">
+            <div class="legend" id="map-legend"></div>
+            <div class="map-tools">
+              <button class="icon-btn" id="zoom-in" title="Acercar" aria-label="Acercar">+</button>
+              <button class="icon-btn" id="zoom-out" title="Alejar" aria-label="Alejar">−</button>
+              <button class="icon-btn" id="traffic-toggle" title="Capa de tráfico" aria-label="Capa de tráfico">
+                <svg viewBox="0 0 24 24" width="14" height="14"><rect x="8" y="3" width="8" height="18" rx="3" fill="none" stroke="currentColor" stroke-width="1.6"/><circle cx="12" cy="8" r="1.5" fill="currentColor"/><circle cx="12" cy="12" r="1.5" fill="currentColor"/><circle cx="12" cy="16" r="1.5" fill="currentColor"/></svg>
+              </button>
+              <button class="icon-btn" id="zoom-reset" title="Centrar" aria-label="Centrar mapa">
+                <svg viewBox="0 0 24 24" width="14" height="14"><path d="M4 9V4h5M20 9V4h-5M4 15v5h5M20 15v5h-5" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></svg>
+              </button>
+            </div>
+          </div>
+          <div class="map-canvas" id="map-canvas">
+            <div id="map" role="img" aria-label="Mapa de buses en vivo"></div>
+            <div class="map-tooltip" id="map-tooltip"></div>
+            <div class="map-hint">Rueda para zoom · arrastra para mover · clic en un bus</div>
+          </div>
+        </div>
+
+        <section class="panel alerts-panel">
+          <header class="panel-head">
+            <h2>Alertas en vivo</h2>
+            <span class="pill pill-danger" id="alerts-open">0 abiertas</span>
+          </header>
+          <div class="alert-list" id="alert-list"></div>
+        </section>
+      </section>
+
+      <aside class="col-right">
+        <section class="panel detail-panel" id="detail"></section>
+      </aside>
+    </main>
+
+    <main class="view scroll-view hidden" id="view-stops">
+      <div class="page">
+        <div class="report-cards" id="stop-cards"></div>
+        <div class="stops-grid">
+          <section class="panel stops-panel">
+            <header class="panel-head">
+              <h2>Aforo por parada</h2>
+              <div class="head-tools">
+                <select id="stops-route" aria-label="Filtrar por ruta"></select>
+                <input id="stops-search" type="search" placeholder="Buscar parada" aria-label="Buscar parada" />
+              </div>
+            </header>
+            <div class="table-wrap stops-table-wrap">
+              <table id="stops-table">
+                <thead>
+                  <tr>
+                    <th>Parada</th><th>Ruta</th><th>Suben</th><th>Bajan</th>
+                    <th>Transbordan</th><th>Demanda</th>
+                  </tr>
+                </thead>
+                <tbody></tbody>
+              </table>
+            </div>
+          </section>
+          <section class="panel chart-panel">
+            <header class="panel-head">
+              <h2>Top paradas</h2>
+              <span class="muted">suben + transbordan</span>
+            </header>
+            <div class="chart chart-bars" id="top-stops"></div>
+          </section>
+        </div>
+      </div>
+    </main>
+
+    <main class="view scroll-view hidden" id="view-reports">
+      <div class="page">
+        <div class="report-cards" id="report-cards"></div>
+        <div class="report-grid">
+          <section class="panel chart-panel">
+            <header class="panel-head">
+              <h2>Demanda por hora</h2>
+              <span class="muted">pasajeros de hoy</span>
+            </header>
+            <div class="chart" id="demand-chart"></div>
+          </section>
+          <section class="panel chart-panel">
+            <header class="panel-head">
+              <h2>Incidentes por tipo</h2>
+              <span class="muted">últimos 30 días</span>
+            </header>
+            <div class="chart chart-bars" id="incident-chart"></div>
+          </section>
+        </div>
+        <section class="panel table-panel">
+          <header class="panel-head">
+            <h2>Desempeño por ruta</h2>
+            <span class="muted">datos simulados del día</span>
+          </header>
+          <div class="table-wrap">
+            <table id="route-table">
+              <thead>
+                <tr>
+                  <th>Ruta</th><th>Buses</th><th>Pasajeros</th><th>Ocupación</th>
+                  <th>Incidentes</th><th>Cumplimiento</th>
+                </tr>
+              </thead>
+              <tbody></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <main class="view scroll-view hidden" id="view-history">
+      <div class="page">
+        <div class="history-head">
+          <div>
+            <h2 class="section-title">Histórico de operación</h2>
+            <p class="muted">Serie diaria persistida en PostgreSQL + agregados de hoy</p>
+          </div>
+          <div class="range-tabs" id="history-range">
+            <button data-days="7">7 días</button>
+            <button data-days="30" class="active">30 días</button>
+          </div>
+        </div>
+        <div class="report-grid">
+          <section class="panel chart-panel">
+            <header class="panel-head"><h2>Pasajeros por día</h2><span class="muted" id="history-total"></span></header>
+            <div class="chart" id="history-daily"></div>
+          </section>
+          <section class="panel chart-panel">
+            <header class="panel-head"><h2>Alertas por día</h2><span class="muted">severidad operativa</span></header>
+            <div class="chart" id="history-alerts"></div>
+          </section>
+        </div>
+        <div class="report-grid">
+          <section class="panel chart-panel">
+            <header class="panel-head"><h2>Ocupación por hora</h2><span class="muted">hoy</span></header>
+            <div class="chart" id="history-hourly"></div>
+          </section>
+          <section class="panel chart-panel">
+            <header class="panel-head"><h2>Transbordos por día</h2><span class="muted">nodos de transferencia</span></header>
+            <div class="chart" id="history-transfers"></div>
+          </section>
+        </div>
+      </div>
+    </main>
+  </div>
+
+  <!-- Login -->
+  <div class="login-screen" id="login-screen">
+    <aside class="login-aside">
+      <div class="login-brand">
+        <div class="brand-mark" aria-hidden="true">
+          <svg viewBox="0 0 32 32" width="26" height="26"><rect x="5" y="6" width="22" height="16" rx="4" fill="none" stroke="currentColor" stroke-width="2"/><path d="M5 14h22" stroke="currentColor" stroke-width="2"/><circle cx="10.5" cy="24" r="2" fill="currentColor"/><circle cx="21.5" cy="24" r="2" fill="currentColor"/><path d="M9 18v3M23 18v3" stroke="currentColor" stroke-width="2"/></svg>
+        </div>
+        <span>Control de Flota · Quito</span>
+      </div>
+      <h1>Todo lo que pasa<br>en tus buses,<br><em>en un solo lugar.</em></h1>
+      <p class="login-lead">Cámaras, GPS y telemetría convertidos en decisiones: ocupación, seguridad,
+        cumplimiento de ruta y evidencia en tiempo real.</p>
+      <ul class="login-points">
+        <li><b>370</b> rutas · <b>370</b> buses · <b>6</b> nodos de transbordo</li>
+        <li>Alertas de seguridad con clip asociado</li>
+        <li>Aforo por parada e histórico persistente</li>
+      </ul>
+      <div class="login-foot">Prototipo con datos simulados · PostgreSQL embebido</div>
+    </aside>
+
+    <div class="login-panel">
+      <form class="login-card" id="login-form" autocomplete="on">
+        <span class="demo-badge">DEMO</span>
+        <h2>Acceso al centro de control</h2>
+        <p>Ingresa con tu cuenta operativa para continuar.</p>
+
+        <label class="field">
+          <span>Usuario</span>
+          <input id="login-user" name="username" autocomplete="username" placeholder="operador" required />
+        </label>
+        <label class="field">
+          <span>Contraseña</span>
+          <input id="login-pass" name="password" type="password" autocomplete="current-password" placeholder="••••••••" required />
+        </label>
+
+        <button type="submit" class="btn-primary" id="login-submit">Ingresar</button>
+        <div class="login-error" id="login-error" role="alert"></div>
+
+        <div class="login-demo">
+          <span>Cuentas de demostración</span>
+          <div class="demo-users">
+            <button type="button" data-fill="operador">operador<small>tráfico</small></button>
+            <button type="button" data-fill="supervisor">supervisor<small>flota</small></button>
+            <button type="button" data-fill="gerencia">gerencia<small>dirección</small></button>
+          </div>
+        </div>
+
+        <div class="login-note">Sesión de 8 horas · los datos se guardan en la base local</div>
+      </form>
+    </div>
+  </div>
+
+  <div class="modal" id="settings-modal" hidden>
+    <div class="modal-card">
+      <header class="modal-head">
+        <h2>Claves de mapas y tráfico</h2>
+        <button class="icon-btn" id="settings-close" aria-label="Cerrar">×</button>
+      </header>
+      <p class="modal-lead">Se guardan solo en este navegador (localStorage) y se envían a TomTom/Google
+        únicamente para cargar sus teselas. Para producción es mejor definirlas como variables de entorno
+        en el servidor.</p>
+
+      <label class="field">
+        <span>TomTom Traffic API key</span>
+        <input id="key-tomtom" type="password" placeholder="Pega tu clave de developer.tomtom.com" autocomplete="off" />
+      </label>
+      <p class="modal-hint">Con esta clave, el botón de tráfico usa el flujo real de TomTom. Sin clave,
+        usa la capa simulada con la velocidad de la flota.</p>
+
+      <label class="field">
+        <span>Google Maps API key (opcional)</span>
+        <input id="key-google" type="password" placeholder="Pega tu clave de Google Cloud" autocomplete="off" />
+      </label>
+      <p class="modal-hint">Google Maps todavía no cambia el mapa base: requiere migrar el motor a
+        Google Maps JS API. La clave se guarda para cuando se haga ese cambio.</p>
+
+      <div class="modal-actions">
+        <button class="btn-primary" id="settings-save">Guardar claves</button>
+        <button class="mini-btn" id="settings-clear">Borrar claves</button>
+      </div>
+      <div class="modal-note" id="settings-status"></div>
+    </div>
+  </div>
+
+  <div class="toast" id="toast" role="status"></div>
+
+  <script src="vendor/leaflet.js"></script>
+  <script type="module" src="main.js"></script>
+
+  <div style="position:fixed;top:12px;right:12px;z-index:110;max-width:280px;padding:8px 11px;border-radius:9px;border:1px solid #2a4057;background:rgba(8,14,24,0.92);color:#c8d7e8;font:11px/1.5 system-ui,Segoe UI,sans-serif;box-shadow:0 10px 28px rgba(0,0,0,0.45);backdrop-filter:blur(6px)">
+    <b style="color:#ffc966">Demo estática</b> · sin backend<br>
+    <span style="color:#8095ab">datos simulados en tu navegador</span><br>
+    <a href="manual/Manual-Instalacion-a-Bordo.pdf" target="_blank" rel="noopener" style="color:#ffc966;text-decoration:none">Manual de instalación (PDF) →</a>
+  </div>
+</body>
+</html>
