@@ -448,6 +448,11 @@ h1, h2, h3, p { margin: 0; }
   backdrop-filter: blur(4px);
 }
 .icon-btn:hover { border-color: #33506f; color: #fff; }
+.icon-btn.active {
+  border-color: rgba(255, 176, 32, 0.5);
+  background: rgba(255, 176, 32, 0.14);
+  color: #ffd489;
+}
 
 .map-canvas {
   position: relative;

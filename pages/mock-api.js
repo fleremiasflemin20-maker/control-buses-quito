@@ -133,6 +133,9 @@ async function handleApi(url, init) {
   }
   if (!user) return json({ error: 'No autenticado' }, 401);
 
+  if (path === '/api/config') {
+    return json({ traffic: { provider: 'simulated', tomtomKey: null }, googleMapsKey: null });
+  }
   if (path === '/api/network') return json(sim.getNetwork());
   if (path === '/api/state') return json(sim.getState());
   if (path === '/api/reports') return json(sim.getReports());

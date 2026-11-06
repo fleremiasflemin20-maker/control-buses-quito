@@ -248,7 +248,7 @@ parser.on('end', () => {
     usedColors.set(id, color);
 
     const lengthKm = pathLength(shape) / 1000;
-    const busCount = Math.max(1, Math.min(2, 1 + (lengthKm > 25 ? 1 : 0)));
+    const busCount = 1;
     const cycleMin = (lengthKm / 20) * 60 * 2;
     const headway = Math.max(3, Math.round((cycleMin / busCount) * 10) / 10);
 

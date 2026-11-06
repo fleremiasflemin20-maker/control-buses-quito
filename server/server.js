@@ -234,6 +234,16 @@ async function handleApi(req, res, url) {
     return sendJSON(res, 200, { user });
   }
 
+  if (pathname === '/api/config' && method === 'GET') {
+    return sendJSON(res, 200, {
+      traffic: {
+        provider: process.env.TOMTOM_KEY ? 'tomtom' : 'simulated',
+        tomtomKey: process.env.TOMTOM_KEY || null,
+      },
+      googleMapsKey: process.env.GOOGLE_MAPS_KEY || null,
+    });
+  }
+
   if (pathname === '/api/network' && method === 'GET') {
     return sendJSON(res, 200, sim.getNetwork());
   }

@@ -6,6 +6,7 @@ const NS = 'http://www.w3.org/2000/svg';
 
 const state = {
   user: null,
+  config: null,
   routes: [],
   buses: [],
   alerts: [],
@@ -116,7 +117,11 @@ async function startApp(user) {
   updateUserChip();
 
   try {
-    const network = await api('/api/network');
+    const [network, config] = await Promise.all([
+      api('/api/network'),
+      api('/api/config').catch(() => ({ traffic: { provider: 'simulated', tomtomKey: null } })),
+    ]);
+    state.config = config;
     applyNetwork(network);
     const snapshot = await api('/api/state');
     applyState(snapshot);
@@ -297,6 +302,14 @@ const markers = new Map();
 const routeLines = new Map();
 
 const colorOf = (routeId) => state.routeById?.get(routeId)?.color || '#38bdf8';
+const DEFAULT_MAP_HINT = 'Rueda para zoom · arrastra para mover · clic en un bus';
+
+let trafficActive = false;
+let trafficMode = null;
+let trafficLayer = null;
+let trafficTiles = null;
+let trafficTick = 0;
+const trafficLines = new Map();
 
 function computeBounds() {
   let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
@@ -335,6 +348,13 @@ function buildMap() {
   }
   markers.clear();
   routeLines.clear();
+  trafficLines.clear();
+  trafficActive = false;
+  trafficMode = null;
+  trafficLayer = null;
+  trafficTiles = null;
+  $('#traffic-toggle')?.classList.remove('active');
+  $('.map-hint').textContent = DEFAULT_MAP_HINT;
   mapFitted = false;
 
   map = L.map(mapEl, {
@@ -496,9 +516,83 @@ function selectBus(id) {
   if (item) item.el.scrollIntoView({ block: 'nearest' });
 }
 
+function setMapHint(text) {
+  const el = $('.map-hint');
+  if (el) el.textContent = text;
+}
+
+function updateTraffic() {
+  if (!trafficActive || trafficMode !== 'simulated') return;
+  const sums = new Map();
+  const counts = new Map();
+  for (const b of state.buses) {
+    sums.set(b.routeId, (sums.get(b.routeId) || 0) + b.speed);
+    counts.set(b.routeId, (counts.get(b.routeId) || 0) + 1);
+  }
+  for (const [id, line] of trafficLines) {
+    const avg = counts.get(id) ? sums.get(id) / counts.get(id) : 0;
+    const color = avg >= 24 ? '#22c55e' : avg >= 17 ? '#f59e0b' : '#ef4444';
+    line.setStyle({ color });
+  }
+}
+
+function toggleTraffic() {
+  if (!map) return;
+  if (trafficActive) {
+    disableTraffic();
+    return;
+  }
+
+  const key = state.config?.traffic?.tomtomKey;
+  trafficActive = true;
+  $('#traffic-toggle')?.classList.add('active');
+
+  if (key) {
+    trafficMode = 'tomtom';
+    trafficTiles = L.tileLayer(
+      `https://api.tomtom.com/traffic/map/4/tile/flow/relative0/{z}/{x}/{y}.png?key=${encodeURIComponent(key)}`,
+      { opacity: 0.65, attribution: 'TomTom Traffic', maxZoom: 19 },
+    ).addTo(map);
+    setMapHint('Tráfico real · TomTom');
+    return;
+  }
+
+  trafficMode = 'simulated';
+  trafficLayer = L.layerGroup().addTo(map);
+  trafficLines.clear();
+  for (const r of state.routes) {
+    const line = L.polyline(r.shape, {
+      color: '#f59e0b',
+      weight: 4,
+      opacity: 0.5,
+      interactive: false,
+    }).addTo(trafficLayer);
+    trafficLines.set(r.id, line);
+  }
+  updateTraffic();
+  setMapHint('Congestión estimada con la velocidad de la flota · configura TOMTOM_KEY para tráfico real');
+}
+
+function disableTraffic() {
+  trafficActive = false;
+  $('#traffic-toggle')?.classList.remove('active');
+  if (trafficTiles && map) {
+    map.removeLayer(trafficTiles);
+    trafficTiles = null;
+  }
+  if (trafficLayer && map) {
+    map.removeLayer(trafficLayer);
+    trafficLayer = null;
+  }
+  trafficLines.clear();
+  trafficMode = null;
+  setMapHint(DEFAULT_MAP_HINT);
+}
+
 function bindMapControls() {
   $('#zoom-in').addEventListener('click', () => map?.zoomIn());
   $('#zoom-out').addEventListener('click', () => map?.zoomOut());
+  $('#traffic-toggle').addEventListener('click', toggleTraffic);
   $('#zoom-reset').addEventListener('click', () => {
     if (!map) return;
     map.invalidateSize();
@@ -1647,6 +1741,8 @@ function applyState(data) {
 
   state.alerts = data.alerts;
   state.kpis = data.kpis;
+  trafficTick = (trafficTick + 1) % 3;
+  if (trafficActive && trafficMode === 'simulated' && trafficTick === 0) updateTraffic();
   setLive(true);
   renderAll();
 }

@@ -4,8 +4,8 @@ Prototipo funcional de un centro de control para buses urbanos con cámara a bor
 telemetría. Incluye **autenticación con roles**, **persistencia en PostgreSQL** (embebido),
 **aforo por parada**, **transbordos** e **histórico**.
 
-La **red de rutas y paradas es real**: se extrajo de OpenStreetMap (250 rutas y 347 buses,
-1.635 paradas). Los vehículos, pasajeros, alertas y telemetría son simulados sobre esa red. La
+La **red de rutas y paradas es real**: se extrajo de OpenStreetMap (370 rutas y 370 buses,
+2.280 paradas). Los vehículos, pasajeros, alertas y telemetría son simulados sobre esa red. La
 interfaz y la API son las definitivas; conectar los datos reales consiste en reemplazar la capa
 de simulación.
 
@@ -49,7 +49,7 @@ cualquier uso real** (ver “Producción” al final).
 | Módulo | Estado | Descripción |
 |---|---|---|
 | Login y roles | ✅ | Sesiones en base de datos, permisos por rol y bloqueo de acciones |
-| Mapa en vivo | ✅ | Mapa real (Leaflet + OSM/CARTO), 250 rutas de Quito, 347 buses y 6 nodos |
+| Mapa en vivo | ✅ | Mapa real (Leaflet + OSM/CARTO), 370 rutas de Quito, 370 buses y 6 nodos |
 | Flota | ✅ | Buscador, filtros y estado por bus |
 | Detalle del bus | ✅ | 4 cámaras simuladas, telemetría, eventos y próxima parada |
 | Alertas | ✅ | Pánico, somnolencia, sobrecupo, evasión, fallas; flujo de atención |
@@ -91,7 +91,7 @@ Sin frameworks ni build para la app: el navegador ejecuta los módulos directame
 
 ```bash
 npm install
-node tools/fetch-network.mjs --max 250
+node tools/fetch-network.mjs --max 370
 ```
 
 El script descarga el extracto de Ecuador de Geofabrik (~126 MB, no se versiona), lee las
@@ -105,7 +105,7 @@ raspado de su web viola los términos de servicio.
 ### Simulación
 
 - 1 segundo real = 25 segundos simulados.
-- 250 rutas reales y 347 buses; 6 nodos de transbordo (La Carolina, Centro, El Recreo, Quitumbe,
+- 370 rutas reales y 370 buses; 6 nodos de transbordo (La Carolina, Centro, El Recreo, Quitumbe,
   La Ofelia, Cumbayá).
 - En cada parada los pasajeros suben y bajan; en los nodos una parte transborda a otra ruta y
   se acumula en una cola que el siguiente bus de la ruta conectada recoge.
@@ -128,6 +128,7 @@ raspado de su web viola los términos de servicio.
 | POST | `/api/auth/login` | público | `{username, password}` → sesión |
 | POST | `/api/auth/logout` | sesión | Cierra la sesión |
 | GET | `/api/auth/me` | sesión | Usuario actual |
+| GET | `/api/config` | sesión | Proveedor de tráfico y claves públicas configuradas |
 | GET | `/api/network` | sesión | Red completa: rutas, geometrías, paradas y buses |
 | GET | `/api/state` | sesión | Snapshot: buses en vivo, alertas, KPIs |
 | GET | `/api/reports` | sesión | Agregados del día |
@@ -138,6 +139,30 @@ raspado de su web viola los términos de servicio.
 | POST | `/api/buses/:id/panic` | supervisor | Simula botón de pánico |
 
 El login tiene límite de 6 intentos por IP cada 5 minutos.
+
+## Capa de tráfico y Google Maps
+
+El mapa tiene un botón de tráfico con dos modos:
+
+- **Sin clave (por defecto):** capa simulada que colorea cada ruta según la velocidad media de sus
+  buses (verde ≥ 24 km/h, ámbar 17–24, rojo < 17). Muestra el concepto, no es tráfico real.
+- **TomTom (real):** define `TOMTOM_KEY` al arrancar:
+  ```bash
+  TOMTOM_KEY=tu_clave npm start
+  ```
+  El servidor entrega la clave al cliente (restríngela por dominio en el portal de TomTom) y el
+  mapa carga las teselas de flujo `traffic/map/4/tile/flow/relative0`.
+
+**Google Maps** no está activo porque falta `GOOGLE_MAPS_API_KEY`. Google no permite superponer su
+capa de tráfico sobre Leaflet: habría que cambiar el motor del mapa a Google Maps JS API. Con una
+clave válida se puede hacer, pero implica reescribir el adaptador del mapa.
+
+## GTFS del SIT
+
+No se encontró un feed GTFS público del SIT/EPMTP en las fuentes revisadas (portal de datos
+abiertos, sitio de la EPMTP y Transitland). Por eso la red se construyó desde OpenStreetMap.
+Si se consigue el ZIP oficial, se integra con un importador de `routes.txt`, `trips.txt`,
+`stops.txt` y `shapes.txt`, y reemplaza `server/network.js` sin tocar el resto del sistema.
 
 ## Conectar los datos reales
 
