@@ -40,6 +40,7 @@ En Windows también puedes usar `iniciar.bat`, que levanta el servidor y abre el
 | `operador` | `operador123` | Operador de tráfico | Ver operación, atender alertas |
 | `supervisor` | `supervisor123` | Supervisor de flota | Todo lo anterior + simular pánico |
 | `gerencia` | `gerencia123` | Gerencia | Solo lectura; entra directo a Reportes |
+| `admin` | `admin123` (o `ADMIN_PASSWORD`) | Administrador | Único que ve el panel ⚙ para configurar claves de mapas y tráfico |
 
 La sesión dura 8 horas y se guarda en una cookie `HttpOnly`. **Cambia estas contraseñas antes de
 cualquier uso real** (ver “Producción” al final).

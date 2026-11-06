@@ -12,6 +12,7 @@ const USERS = {
   operador: { password: 'operador123', name: 'Carlos Mera', role: 'operador' },
   supervisor: { password: 'supervisor123', name: 'Andrea Salcedo', role: 'supervisor' },
   gerencia: { password: 'gerencia123', name: 'Patricio Almeida', role: 'gerencia' },
+  admin: { password: 'admin123', name: 'Administrador de la plataforma', role: 'admin' },
 };
 
 function currentUser() {

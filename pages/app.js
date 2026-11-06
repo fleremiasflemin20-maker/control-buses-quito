@@ -29,6 +29,7 @@ const ROLE_LABEL = {
   operador: 'Operador de tráfico',
   supervisor: 'Supervisor de flota',
   gerencia: 'Gerencia',
+  admin: 'Administrador',
 };
 
 const KEYS_STORAGE = 'flota_map_keys';
@@ -42,6 +43,7 @@ function loadStoredKeys() {
 }
 
 function applyStoredKeys() {
+  if (!canAdmin()) return;
   const keys = loadStoredKeys();
   if (!state.config) state.config = { traffic: {} };
   if (!state.config.traffic) state.config.traffic = { provider: 'simulated' };
@@ -53,6 +55,10 @@ function applyStoredKeys() {
 }
 
 function openSettings() {
+  if (!canAdmin()) {
+    toast('Solo el administrador puede configurar claves', true);
+    return;
+  }
   const keys = loadStoredKeys();
   $('#key-tomtom').value = keys.tomtom || state.config?.traffic?.tomtomKey || '';
   $('#key-google').value = keys.google || state.config?.googleMapsKey || '';
@@ -66,6 +72,10 @@ function closeSettings() {
 }
 
 function saveSettings() {
+  if (!canAdmin()) {
+    toast('Solo el administrador puede guardar claves', true);
+    return;
+  }
   const tomtom = $('#key-tomtom').value.trim();
   const google = $('#key-google').value.trim();
   localStorage.setItem(KEYS_STORAGE, JSON.stringify({ tomtom, google }));
@@ -85,6 +95,10 @@ function saveSettings() {
 }
 
 function clearSettings() {
+  if (!canAdmin()) {
+    toast('Solo el administrador puede borrar claves', true);
+    return;
+  }
   localStorage.removeItem(KEYS_STORAGE);
   $('#key-tomtom').value = '';
   $('#key-google').value = '';
@@ -101,6 +115,7 @@ function clearSettings() {
 
 const canOperate = () => state.user && state.user.role !== 'gerencia';
 const canPanic = () => state.user && state.user.role === 'supervisor';
+const canAdmin = () => state.user?.role === 'admin';
 
 
 const nf = new Intl.NumberFormat('es-EC');
@@ -169,6 +184,8 @@ function updateUserChip() {
   if (!u) return;
   $('#user-name').textContent = u.name;
   $('#user-role').textContent = ROLE_LABEL[u.role] || u.role;
+  const gear = $('#open-settings');
+  if (gear) gear.hidden = !canAdmin();
   $('#user-initials').textContent = u.name
     .split(/\s+/)
     .map((p) => p[0])

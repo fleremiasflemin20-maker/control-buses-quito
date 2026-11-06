@@ -18,7 +18,7 @@ CREATE TABLE IF NOT EXISTS users (
   username TEXT UNIQUE NOT NULL,
   password_hash TEXT NOT NULL,
   name TEXT NOT NULL,
-  role TEXT NOT NULL CHECK (role IN ('operador', 'supervisor', 'gerencia')),
+  role TEXT NOT NULL CHECK (role IN ('operador', 'supervisor', 'gerencia', 'admin')),
   active BOOLEAN NOT NULL DEFAULT TRUE,
   created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
@@ -114,6 +114,11 @@ export async function openDatabase() {
   fs.mkdirSync(DATA_DIR, { recursive: true });
   const db = new PGlite(DB_DIR);
   await db.exec(SCHEMA);
+  // Migración: bases creadas antes del rol admin.
+  await db.exec(`
+    ALTER TABLE users DROP CONSTRAINT IF EXISTS users_role_check;
+    ALTER TABLE users ADD CONSTRAINT users_role_check CHECK (role IN ('operador', 'supervisor', 'gerencia', 'admin'));
+  `);
 
   const repo = {
     db,
@@ -137,6 +142,19 @@ export async function openDatabase() {
         );
       }
       console.log('  Usuarios creados: operador/operador123 · supervisor/supervisor123 · gerencia/gerencia123');
+    },
+
+    async ensureAdmin() {
+      const res = await db.query("SELECT 1 FROM users WHERE username = 'admin'");
+      if (res.rows.length) return;
+      const password = process.env.ADMIN_PASSWORD || 'admin123';
+      await db.query(
+        'INSERT INTO users (username, password_hash, name, role) VALUES ($1,$2,$3,$4)',
+        ['admin', hashPassword(password), 'Administrador de la plataforma', 'admin'],
+      );
+      if (!process.env.ADMIN_PASSWORD) {
+        console.log('  Usuario admin creado: admin/admin123 (cámbialo en producción)');
+      }
     },
 
     async seedCatalog(routes, buses) {
@@ -358,6 +376,7 @@ export async function openDatabase() {
   };
 
   await repo.seedUsers();
+  await repo.ensureAdmin();
   await repo.cleanupSessions();
   return repo;
 }
