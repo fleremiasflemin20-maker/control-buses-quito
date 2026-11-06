@@ -31,6 +31,74 @@ const ROLE_LABEL = {
   gerencia: 'Gerencia',
 };
 
+const KEYS_STORAGE = 'flota_map_keys';
+
+function loadStoredKeys() {
+  try {
+    return JSON.parse(localStorage.getItem(KEYS_STORAGE) || '{}');
+  } catch {
+    return {};
+  }
+}
+
+function applyStoredKeys() {
+  const keys = loadStoredKeys();
+  if (!state.config) state.config = { traffic: {} };
+  if (!state.config.traffic) state.config.traffic = { provider: 'simulated' };
+  if (keys.tomtom) {
+    state.config.traffic.tomtomKey = keys.tomtom;
+    state.config.traffic.provider = 'tomtom';
+  }
+  if (keys.google) state.config.googleMapsKey = keys.google;
+}
+
+function openSettings() {
+  const keys = loadStoredKeys();
+  $('#key-tomtom').value = keys.tomtom || state.config?.traffic?.tomtomKey || '';
+  $('#key-google').value = keys.google || state.config?.googleMapsKey || '';
+  $('#settings-status').textContent = '';
+  $('#settings-modal').hidden = false;
+  $('#key-tomtom').focus();
+}
+
+function closeSettings() {
+  $('#settings-modal').hidden = true;
+}
+
+function saveSettings() {
+  const tomtom = $('#key-tomtom').value.trim();
+  const google = $('#key-google').value.trim();
+  localStorage.setItem(KEYS_STORAGE, JSON.stringify({ tomtom, google }));
+
+  if (!state.config.traffic) state.config.traffic = { provider: 'simulated' };
+  state.config.traffic.tomtomKey = tomtom || null;
+  state.config.traffic.provider = tomtom ? 'tomtom' : 'simulated';
+  state.config.googleMapsKey = google || null;
+
+  $('#settings-status').textContent = 'Claves guardadas en este navegador.';
+  toast('Configuración guardada');
+
+  if (trafficActive) {
+    disableTraffic();
+    toggleTraffic();
+  }
+}
+
+function clearSettings() {
+  localStorage.removeItem(KEYS_STORAGE);
+  $('#key-tomtom').value = '';
+  $('#key-google').value = '';
+  if (!state.config.traffic) state.config.traffic = { provider: 'simulated' };
+  state.config.traffic.tomtomKey = null;
+  state.config.traffic.provider = 'simulated';
+  state.config.googleMapsKey = null;
+  $('#settings-status').textContent = 'Claves borradas. Tráfico en modo simulado.';
+  if (trafficActive) {
+    disableTraffic();
+    toggleTraffic();
+  }
+}
+
 const canOperate = () => state.user && state.user.role !== 'gerencia';
 const canPanic = () => state.user && state.user.role === 'supervisor';
 
@@ -122,6 +190,7 @@ async function startApp(user) {
       api('/api/config').catch(() => ({ traffic: { provider: 'simulated', tomtomKey: null } })),
     ]);
     state.config = config;
+    applyStoredKeys();
     applyNetwork(network);
     const snapshot = await api('/api/state');
     applyState(snapshot);
@@ -571,6 +640,7 @@ function toggleTraffic() {
   }
   updateTraffic();
   setMapHint('Congestión estimada con la velocidad de la flota · configura TOMTOM_KEY para tráfico real');
+  toast('Tráfico simulado · pega tu clave TomTom en ⚙');
 }
 
 function disableTraffic() {
@@ -1815,6 +1885,14 @@ function bindUI() {
     e.preventDefault();
     e.currentTarget.scrollLeft += e.deltaY;
   }, { passive: false });
+
+  $('#open-settings')?.addEventListener('click', openSettings);
+  $('#settings-close')?.addEventListener('click', closeSettings);
+  $('#settings-save')?.addEventListener('click', saveSettings);
+  $('#settings-clear')?.addEventListener('click', clearSettings);
+  $('#settings-modal')?.addEventListener('click', (e) => {
+    if (e.target.id === 'settings-modal') closeSettings();
+  });
 
   $$('.tab').forEach((tab) => {
     tab.addEventListener('click', () => switchTab(tab.dataset.tab));

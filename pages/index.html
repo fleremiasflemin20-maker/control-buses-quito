@@ -33,6 +33,9 @@
       <div class="user-menu" id="user-menu">
         <div class="avatar" id="user-initials">··</div>
         <div class="user-meta"><b id="user-name">Sin sesión</b><span id="user-role">—</span></div>
+        <button class="icon-btn" id="open-settings" title="Claves de mapas y tráfico" aria-label="Configuración de claves">
+          <svg viewBox="0 0 24 24" width="14" height="14"><circle cx="12" cy="12" r="3" fill="none" stroke="currentColor" stroke-width="1.8"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9 7 7M17 17l2.1 2.1M19.1 4.9 17 7M7 17l-2.1 2.1" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>
+        </button>
         <button class="icon-btn" id="logout" title="Cerrar sesión" aria-label="Cerrar sesión">
           <svg viewBox="0 0 24 24" width="14" height="14"><path d="M15 5H6v14h9M13 12h7m0 0-3-3m3 3-3 3" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
         </button>
@@ -274,6 +277,38 @@
 
         <div class="login-note">Sesión de 8 horas · los datos se guardan en la base local</div>
       </form>
+    </div>
+  </div>
+
+  <div class="modal" id="settings-modal" hidden>
+    <div class="modal-card">
+      <header class="modal-head">
+        <h2>Claves de mapas y tráfico</h2>
+        <button class="icon-btn" id="settings-close" aria-label="Cerrar">×</button>
+      </header>
+      <p class="modal-lead">Se guardan solo en este navegador (localStorage) y se envían a TomTom/Google
+        únicamente para cargar sus teselas. Para producción es mejor definirlas como variables de entorno
+        en el servidor.</p>
+
+      <label class="field">
+        <span>TomTom Traffic API key</span>
+        <input id="key-tomtom" type="password" placeholder="Pega tu clave de developer.tomtom.com" autocomplete="off" />
+      </label>
+      <p class="modal-hint">Con esta clave, el botón de tráfico usa el flujo real de TomTom. Sin clave,
+        usa la capa simulada con la velocidad de la flota.</p>
+
+      <label class="field">
+        <span>Google Maps API key (opcional)</span>
+        <input id="key-google" type="password" placeholder="Pega tu clave de Google Cloud" autocomplete="off" />
+      </label>
+      <p class="modal-hint">Google Maps todavía no cambia el mapa base: requiere migrar el motor a
+        Google Maps JS API. La clave se guarda para cuando se haga ese cambio.</p>
+
+      <div class="modal-actions">
+        <button class="btn-primary" id="settings-save">Guardar claves</button>
+        <button class="mini-btn" id="settings-clear">Borrar claves</button>
+      </div>
+      <div class="modal-note" id="settings-status"></div>
     </div>
   </div>
 

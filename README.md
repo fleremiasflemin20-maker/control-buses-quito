@@ -153,6 +153,9 @@ El mapa tiene un botón de tráfico con dos modos:
   El servidor entrega la clave al cliente (restríngela por dominio en el portal de TomTom) y el
   mapa carga las teselas de flujo `traffic/map/4/tile/flow/relative0`.
 
+También puedes pegar la clave desde el botón **⚙** de la app (se guarda en `localStorage` de ese
+navegador). Es la vía para activar TomTom en la demo de GitHub Pages sin recompilar nada.
+
 **Google Maps** no está activo porque falta `GOOGLE_MAPS_API_KEY`. Google no permite superponer su
 capa de tráfico sobre Leaflet: habría que cambiar el motor del mapa a Google Maps JS API. Con una
 clave válida se puede hacer, pero implica reescribir el adaptador del mapa.
@@ -163,6 +166,8 @@ No se encontró un feed GTFS público del SIT/EPMTP en las fuentes revisadas (po
 abiertos, sitio de la EPMTP y Transitland). Por eso la red se construyó desde OpenStreetMap.
 Si se consigue el ZIP oficial, se integra con un importador de `routes.txt`, `trips.txt`,
 `stops.txt` y `shapes.txt`, y reemplaza `server/network.js` sin tocar el resto del sistema.
+
+Hay una plantilla de solicitud lista para enviar: [`docs/Solicitud-GTFS-EPMTP.md`](docs/Solicitud-GTFS-EPMTP.md).
 
 ## Conectar los datos reales
 
