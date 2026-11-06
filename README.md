@@ -45,6 +45,13 @@ En Windows también puedes usar `iniciar.bat`, que levanta el servidor y abre el
 La sesión dura 8 horas y se guarda en una cookie `HttpOnly`. **Cambia estas contraseñas antes de
 cualquier uso real** (ver “Producción” al final).
 
+El panel **⚙** de claves (TomTom/Google) solo lo ve el rol `admin`. Para cambiar su contraseña,
+con el servidor detenido:
+
+```bash
+npm run admin:password -- "una-clave-larga"
+```
+
 ## Qué incluye
 
 | Módulo | Estado | Descripción |

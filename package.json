@@ -8,6 +8,7 @@
     "start": "node server/server.js",
     "dev": "node --watch server/server.js",
     "db:reset": "node tools/reset-db.mjs",
+    "admin:password": "node tools/set-admin-password.mjs",
     "pages:build": "node tools/build-pages.mjs"
   },
   "dependencies": {
