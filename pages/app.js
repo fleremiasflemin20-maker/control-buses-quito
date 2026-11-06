@@ -1331,7 +1331,8 @@ async function loadStops() {
 function renderStops() {
   const d = state.stops;
   if (!d) return;
-  const top = d.stops[0];
+  const named = d.stops.filter((s) => s.name && !/^Parada( \d+)?$/i.test(s.name));
+  const top = named[0] || d.stops[0];
 
   $('#stop-cards').innerHTML = `
     <div class="report-card">
@@ -1385,7 +1386,8 @@ function renderStops() {
       </tr>`).join('')
     : '<tr><td colspan="6"><div class="empty">Sin paradas para este filtro</div></td></tr>';
 
-  renderHBars($('#top-stops'), rows.slice(0, 8).map((s) => ({
+  const chartRows = rows.filter((s) => !/^Parada( \d+)?$/i.test(s.name)).slice(0, 8);
+  renderHBars($('#top-stops'), (chartRows.length ? chartRows : rows.slice(0, 8)).map((s) => ({
     label: s.name,
     value: s.total,
     meta: `${s.routeCode} · ${nf.format(s.boardings)} suben`,
