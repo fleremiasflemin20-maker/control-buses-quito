@@ -15,5 +15,8 @@
   },
   "engines": {
     "node": ">=20"
+  },
+  "devDependencies": {
+    "osm-pbf-parser": "^2.3.0"
   }
 }

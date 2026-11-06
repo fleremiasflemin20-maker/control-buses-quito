@@ -4,9 +4,10 @@ Prototipo funcional de un centro de control para buses urbanos con cámara a bor
 telemetría. Incluye **autenticación con roles**, **persistencia en PostgreSQL** (embebido),
 **aforo por parada**, **transbordos** e **histórico**.
 
-Todo funciona con datos simulados: los buses recorren rutas de Quito, suben y bajan pasajeros,
-hacen transbordos en nodos y generan alertas. La interfaz y la API son las definitivas; conectar
-los datos reales consiste en reemplazar la capa de simulación.
+La **red de rutas y paradas es real**: se extrajo de OpenStreetMap (250 rutas y 347 buses,
+1.635 paradas). Los vehículos, pasajeros, alertas y telemetría son simulados sobre esa red. La
+interfaz y la API son las definitivas; conectar los datos reales consiste en reemplazar la capa
+de simulación.
 
 ## Demo en línea (GitHub Pages)
 
@@ -48,7 +49,7 @@ cualquier uso real** (ver “Producción” al final).
 | Módulo | Estado | Descripción |
 |---|---|---|
 | Login y roles | ✅ | Sesiones en base de datos, permisos por rol y bloqueo de acciones |
-| Mapa en vivo | ✅ | 54 buses, 10 rutas, 6 nodos de transbordo, zoom y tooltip |
+| Mapa en vivo | ✅ | Mapa real (Leaflet + OSM/CARTO), 250 rutas de Quito, 347 buses y 6 nodos |
 | Flota | ✅ | Buscador, filtros y estado por bus |
 | Detalle del bus | ✅ | 4 cámaras simuladas, telemetría, eventos y próxima parada |
 | Alertas | ✅ | Pánico, somnolencia, sobrecupo, evasión, fallas; flujo de atención |
@@ -64,25 +65,47 @@ cualquier uso real** (ver “Producción” al final).
 
 ```
 server/
-  data.js      rutas, paradas, nodos de transbordo y flota (datos base)
+  network.js   red real de rutas y paradas generada desde OpenStreetMap
+  data.js      compone network.js con zonas y cámaras
   db.js        PostgreSQL embebido (PGlite), esquema, usuarios y consultas
   sim.js       motor: movimiento, pasajeros, transbordos, alertas, agregados
   server.js    HTTP + API REST + SSE + sesiones + archivos estáticos
 public/
   index.html   login y vistas (operación, paradas, reportes, histórico)
   styles.css   tema visual
-  app.js       mapa SVG, cámaras, gráficas y lógica de UI
+  app.js       mapa Leaflet, cámaras, gráficas y lógica de UI
+  vendor/      Leaflet 1.9.4 (servido local, sin CDN)
+tools/
+  fetch-network.mjs   descarga y extrae las rutas desde OSM
+  build-pages.mjs     genera la demo estática de GitHub Pages
 docs/
   build_manual.py           generador del manual (Python + python-docx)
-  Manual-Instalacion-a-Bordo.docx
+  Manual-Instalacion-a-Bordo.docx / .pdf
 ```
 
-Sin frameworks ni build: el navegador ejecuta los módulos directamente.
+Sin frameworks ni build para la app: el navegador ejecuta los módulos directamente.
+
+### Red real de rutas (OpenStreetMap)
+
+`server/network.js` se genera con:
+
+```bash
+npm install
+node tools/fetch-network.mjs --max 250
+```
+
+El script descarga el extracto de Ecuador de Geofabrik (~126 MB, no se versiona), lee las
+relaciones `route=bus` de Quito, arma las geometrías, deduplica por código de ruta, asigna
+paradas y nodos de transbordo y escribe `server/network.js`.
+
+**Datos © OpenStreetMap contributors, licencia ODbL 1.0.** El mapa usa teselas de CARTO con
+atribución visible. No se usa Google Maps: su API de rutas exige clave y facturación, y el
+raspado de su web viola los términos de servicio.
 
 ### Simulación
 
 - 1 segundo real = 25 segundos simulados.
-- 54 buses en 10 rutas; 6 nodos de transbordo (La Carolina, Centro, El Recreo, Quitumbe,
+- 250 rutas reales y 347 buses; 6 nodos de transbordo (La Carolina, Centro, El Recreo, Quitumbe,
   La Ofelia, Cumbayá).
 - En cada parada los pasajeros suben y bajan; en los nodos una parte transborda a otra ruta y
   se acumula en una cola que el siguiente bus de la ruta conectada recoge.
@@ -105,7 +128,8 @@ Sin frameworks ni build: el navegador ejecuta los módulos directamente.
 | POST | `/api/auth/login` | público | `{username, password}` → sesión |
 | POST | `/api/auth/logout` | sesión | Cierra la sesión |
 | GET | `/api/auth/me` | sesión | Usuario actual |
-| GET | `/api/state` | sesión | Snapshot: rutas, buses, alertas, KPIs |
+| GET | `/api/network` | sesión | Red completa: rutas, geometrías, paradas y buses |
+| GET | `/api/state` | sesión | Snapshot: buses en vivo, alertas, KPIs |
 | GET | `/api/reports` | sesión | Agregados del día |
 | GET | `/api/stops` | sesión | Aforo por parada (24 h) |
 | GET | `/api/history?days=30` | sesión | Series diarias + ocupación horaria |

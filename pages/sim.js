@@ -2,7 +2,7 @@
 // transbordos en nodos, telemetría, alertas y agregados para reportes.
 // La persistencia es opcional (se inyecta un objeto `persist`).
 
-import { BUSES, HUBS, ROUTES } from './data.js';
+import { BUSES, HUBS, NETWORK_META, ROUTES } from './data.js';
 
 const R_EARTH = 6371000;
 const SPEED_FACTOR = 25; // 1 segundo real = 25 segundos simulados
@@ -307,7 +307,7 @@ export class Simulator {
     bus.odometer += meters / 1000;
     bus.status = 'en ruta';
 
-    if (bus.occupancy > bus.capacity) this.maybeAlert(bus, 'sobrecupo', 0.02);
+    if (bus.occupancy > bus.capacity) this.maybeAlert(bus, 'sobrecupo', 0.005);
   }
 
   exchangePassengers(bus, stop) {
@@ -441,7 +441,7 @@ export class Simulator {
         }
         continue;
       }
-      if (Math.random() < 0.0006) {
+      if (Math.random() < 0.00012) {
         bus.commsLost = true;
         bus.commLostUntil = now + rnd(12000, 35000);
         continue;
@@ -449,7 +449,7 @@ export class Simulator {
       this.stepBus(bus, meta, dtSim);
       bus.lastSeen = now;
 
-      if (Math.random() < 0.0014) {
+      if (Math.random() < 0.00022) {
         const def = pickEvent();
         if (def.type === 'sobrecupo' && bus.occupancy <= bus.capacity) continue;
         if (def.type === 'puerta_abierta' && bus.speed < 15) continue;
@@ -484,40 +484,23 @@ export class Simulator {
 
     return {
       id: bus.id,
-      plate: bus.plate,
       routeId: bus.routeId,
-      routeCode: bus.routeCode,
-      routeName: bus.routeName,
-      routeColor: bus.routeColor,
-      driver: bus.driver,
-      capacity: bus.capacity,
-      occupancy: bus.occupancy,
-      lat: pos.lat,
-      lng: pos.lng,
-      heading: pos.heading,
+      lat: Number(pos.lat.toFixed(6)),
+      lng: Number(pos.lng.toFixed(6)),
+      heading: Math.round(pos.heading),
       speed: Math.round(bus.speed),
-      status: bus.commsLost
-        ? 'sin señal'
-        : openAlert
-          ? 'alerta'
-          : bus.dwellUntil > this.simNow
-            ? 'en parada'
-            : 'en ruta',
+      occupancy: bus.occupancy,
       commsLost: bus.commsLost,
-      lastSeen: bus.lastSeen,
+      dwelling: bus.dwellUntil > this.simNow,
       fuel: Math.round(bus.fuel),
       engineTemp: Math.round(bus.engineTemp),
       odometer: Math.round(bus.odometer),
       nextStop: upcoming ? upcoming.stop.name : 'Terminal',
-      nextStopHub: upcoming?.stop.hub || null,
       nextStopDistance: upcoming ? Math.round(upcoming.gap) : 0,
       etaMin: etaMin ? Math.round(etaMin) : null,
       direction: bus.dir > 0 ? 'ida' : 'vuelta',
       alertId: openAlert ? openAlert.id : null,
       alertSeverity: openAlert ? openAlert.severity : null,
-      cameras: bus.cameras,
-      model: bus.model,
-      year: bus.year,
     };
   }
 
@@ -531,7 +514,7 @@ export class Simulator {
       85,
       99.4,
     );
-    const headways = this.routes.map((r) => this.routeHeadway(r.id));
+    const headways = this.routes.map((r) => Math.min(r.headwayMin, 30));
     return {
       activeBuses: online.length,
       totalBuses: buses.length,
@@ -563,6 +546,34 @@ export class Simulator {
     return gaps[Math.floor(gaps.length / 2)];
   }
 
+  getNetwork() {
+    return {
+      meta: NETWORK_META,
+      hubs: Object.entries(this.hubs).map(([id, h]) => ({ id, name: h.name, routes: h.routes })),
+      buses: this.buses.map((b) => ({
+        id: b.id,
+        plate: b.plate,
+        routeId: b.routeId,
+        driver: b.driver,
+        capacity: b.capacity,
+        model: b.model,
+        year: b.year,
+        cameras: b.cameras,
+      })),
+      routes: this.routes.map((r) => ({
+        id: r.id,
+        code: r.code,
+        name: r.name,
+        color: r.color,
+        headwayMin: r.headwayMin,
+        operator: r.operator || '',
+        network: r.network || '',
+        shape: r.shape,
+        stops: r.stops.map((s) => ({ name: s.name, lat: s.lat, lng: s.lng, hub: s.hub || null })),
+      })),
+    };
+  }
+
   getState() {
     const buses = this.buses.map((b) => this.snapshotBus(b));
     return {
@@ -573,8 +584,6 @@ export class Simulator {
         name: r.name,
         color: r.color,
         headwayMin: r.headwayMin,
-        shape: r.shape,
-        stops: r.stops.map((s) => ({ name: s.name, lat: s.lat, lng: s.lng, hub: s.hub || null })),
         buses: this.buses.filter((b) => b.routeId === r.id).length,
         headway: Math.round(this.routeHeadway(r.id) * 10) / 10,
       })),
@@ -611,7 +620,7 @@ export class Simulator {
         incidents: inc,
         compliance: Math.round(clamp(99 - inc * 0.55, 82, 99.5) * 10) / 10,
       };
-    });
+    }).sort((a, b) => b.boardings - a.boardings).slice(0, 18);
     return {
       ts: new Date().toISOString(),
       demandByHour: this.getHourly().filter((h) => h.hour <= currentHour),

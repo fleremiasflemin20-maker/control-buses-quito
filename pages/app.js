@@ -116,6 +116,8 @@ async function startApp(user) {
   updateUserChip();
 
   try {
+    const network = await api('/api/network');
+    applyNetwork(network);
     const snapshot = await api('/api/state');
     applyState(snapshot);
   } catch (err) {
@@ -169,7 +171,7 @@ function renderRoutes() {
   const counts = new Map();
   for (const b of state.buses) counts.set(b.routeId, (counts.get(b.routeId) || 0) + 1);
   const sig = state.routeFilter + '|' + state.routes
-    .map((r) => `${r.id}:${counts.get(r.id) || 0}:${Math.round(r.headway ?? r.headwayMin)}`)
+    .map((r) => `${r.id}:${counts.get(r.id) || 0}`)
     .join(',');
   if (sig === routeSig) return;
   routeSig = sig;
@@ -191,13 +193,13 @@ function renderRoutes() {
         <span class="route-bar" style="background:${r.color}"></span>
         <span>
           <span class="route-name">${r.code} · ${r.name}</span>
-          <span class="route-meta">headway ${(r.headway ?? r.headwayMin).toFixed(1)} min · ${r.stops.length} paradas</span>
+          <span class="route-meta">${r.stops.length} paradas${r.network ? ` · ${r.network}` : ''}</span>
         </span>
         <span class="route-buses">${count}</span>
       </button>`);
   }
   $('#route-list').innerHTML = rows.join('');
-  $('#routes-count').textContent = `${state.routes.length} troncales`;
+  $('#routes-count').textContent = `${state.routes.length} rutas`;
 }
 
 /* ══════════════════════════ flota ══════════════════════════ */
@@ -278,21 +280,23 @@ function renderFleet() {
   $('#fleet-count').textContent = `${list.length} de ${state.buses.length}`;
 }
 
-/* ══════════════════════════ mapa ══════════════════════════ */
+/* ══════════════════════════ mapa (Leaflet + OSM) ══════════════════════════ */
 
-const MAP_W = 1000;
-const MAP_H = 760;
-const PAD = 54;
-const svg = $('#map');
+const mapEl = $('#map');
 const mapCanvas = $('#map-canvas');
-const tooltip = $('#map-tooltip');
 
-let viewport = null;
-let bounds = null;
+let map = null;
+let routeLayer = null;
+let stopLayer = null;
+let hubLayer = null;
+let busLayer = null;
+let highlightLayer = null;
+let selectedRing = null;
+let mapFitted = false;
 const markers = new Map();
-let vt = { x: 0, y: 0, k: 1 };
-let drag = null;
-let dragged = false;
+const routeLines = new Map();
+
+const colorOf = (routeId) => state.routeById?.get(routeId)?.color || '#38bdf8';
 
 function computeBounds() {
   let minLat = Infinity, maxLat = -Infinity, minLng = Infinity, maxLng = -Infinity;
@@ -303,159 +307,177 @@ function computeBounds() {
     }
   }
   if (!Number.isFinite(minLat)) {
-    minLat = -0.30; maxLat = -0.08; minLng = -78.56; maxLng = -78.34;
+    minLat = -0.32; maxLat = -0.05; minLng = -78.60; maxLng = -78.30;
   }
-  bounds = { minLat, maxLat, minLng, maxLng };
+  state.bounds = { minLat, maxLat, minLng, maxLng };
 }
 
-function project(lat, lng) {
-  const { minLat, maxLat, minLng, maxLng } = bounds;
-  const x = PAD + ((lng - minLng) / (maxLng - minLng)) * (MAP_W - 2 * PAD);
-  const y = PAD + ((maxLat - lat) / (maxLat - minLat)) * (MAP_H - 2 * PAD);
-  return { x, y };
+function fitNetwork() {
+  if (!map) return;
+  const b = state.network?.meta?.bounds || state.bounds;
+  if (!b) return;
+  map.fitBounds([[b.minLat, b.minLng], [b.maxLat, b.maxLng]], { padding: [18, 18] });
+  mapFitted = true;
 }
 
-function svgEl(name, attrs = {}) {
-  const el = document.createElementNS(NS, name);
-  for (const [k, v] of Object.entries(attrs)) el.setAttribute(k, v);
-  return el;
+function hubPosition(hubId) {
+  for (const r of state.routes) {
+    const s = r.stops.find((x) => x.hub === hubId);
+    if (s) return [s.lat, s.lng];
+  }
+  return null;
 }
 
 function buildMap() {
-  svg.innerHTML = '';
-  const defs = svgEl('defs');
-  defs.innerHTML = `
-    <filter id="routeGlow" x="-40%" y="-40%" width="180%" height="180%">
-      <feGaussianBlur stdDeviation="3" result="blur"/>
-      <feMerge><feMergeNode in="blur"/><feMergeNode in="SourceGraphic"/></feMerge>
-    </filter>
-    <radialGradient id="mapFade" cx="50%" cy="45%" r="70%">
-      <stop offset="0%" stop-color="#0b1a2c" stop-opacity="0.55"/>
-      <stop offset="100%" stop-color="#050b12" stop-opacity="0"/>
-    </radialGradient>`;
-  svg.appendChild(defs);
-
-  svg.appendChild(svgEl('rect', { x: 0, y: 0, width: MAP_W, height: MAP_H, fill: 'url(#mapFade)' }));
-
-  const grid = svgEl('g', { opacity: '0.5' });
-  for (let x = 0; x <= MAP_W; x += 100) {
-    grid.appendChild(svgEl('line', { x1: x, y1: 0, x2: x, y2: MAP_H, stroke: '#0f1c2d', 'stroke-width': 1 }));
+  if (map) {
+    map.remove();
+    map = null;
   }
-  for (let y = 0; y <= MAP_H; y += 100) {
-    grid.appendChild(svgEl('line', { x1: 0, y1: y, x2: MAP_W, y2: y, stroke: '#0f1c2d', 'stroke-width': 1 }));
-  }
-  svg.appendChild(grid);
-
-  viewport = svgEl('g', { id: 'viewport' });
-  svg.appendChild(viewport);
-
-  const zones = svgEl('g');
-  const zonePoints = [
-    ['LA CAROLINA', -0.1845, -78.4800], ['CENTRO HISTÓRICO', -0.2200, -78.5145],
-    ['EL RECREO', -0.2400, -78.5170], ['QUITUMBE', -0.2895, -78.5500],
-    ['CARCELÉN', -0.0930, -78.4790], ['CUMBAYÁ', -0.1990, -78.4330],
-    ['AEROPUERTO', -0.1290, -78.3590], ['IÑAQUITO', -0.1725, -78.4870],
-  ];
-  for (const [name, lat, lng] of zonePoints) {
-    const p = project(lat, lng);
-    const t = svgEl('text', { x: p.x, y: p.y, class: 'zone-label', 'text-anchor': 'middle' });
-    t.textContent = name;
-    zones.appendChild(t);
-  }
-  viewport.appendChild(zones);
-
-  const routeLayer = svgEl('g', { id: 'routes' });
-  const stopLayer = svgEl('g', { id: 'stops' });
-  for (const r of state.routes) {
-    const d = r.shape.map(([lat, lng], i) => {
-      const p = project(lat, lng);
-      return `${i === 0 ? 'M' : 'L'}${p.x.toFixed(1)} ${p.y.toFixed(1)}`;
-    }).join(' ');
-    routeLayer.appendChild(svgEl('path', {
-      d, class: 'route-path', 'data-route': r.id,
-      stroke: r.color, 'stroke-width': 2.4, opacity: '0.75',
-    }));
-    for (const s of r.stops) {
-      const p = project(s.lat, s.lng);
-      stopLayer.appendChild(svgEl('circle', { cx: p.x, cy: p.y, r: 2.6, class: 'stop-dot' }));
-    }
-  }
-  viewport.appendChild(routeLayer);
-  viewport.appendChild(stopLayer);
-
-  // nodos de transbordo
-  const hubLayer = svgEl('g', { id: 'hubs' });
-  const seenHubs = new Set();
-  for (const r of state.routes) {
-    for (const s of r.stops) {
-      if (!s.hub || seenHubs.has(s.hub)) continue;
-      seenHubs.add(s.hub);
-      const p = project(s.lat, s.lng);
-      const name = state.hubs?.find((h) => h.id === s.hub)?.name || s.hub;
-      const g = svgEl('g', { class: 'hub', transform: `translate(${p.x.toFixed(1)} ${p.y.toFixed(1)})` });
-      g.appendChild(svgEl('rect', {
-        x: -4.2, y: -4.2, width: 8.4, height: 8.4,
-        transform: 'rotate(45)', fill: '#0b1220', stroke: '#ffb020', 'stroke-width': 1.6, rx: 1,
-      }));
-      const label = svgEl('text', { class: 'hub-label', y: 15, 'text-anchor': 'middle' });
-      label.textContent = name;
-      g.appendChild(label);
-      hubLayer.appendChild(g);
-    }
-  }
-  viewport.appendChild(hubLayer);
-
-  const busLayer = svgEl('g', { id: 'buses' });
-  viewport.appendChild(busLayer);
-
   markers.clear();
-  for (const b of state.buses) {
-    const g = svgEl('g', { class: 'bus', 'data-id': b.id });
-    const hit = svgEl('circle', { class: 'hit', r: 13 });
-    const halo = svgEl('circle', { class: 'halo', r: 9, fill: b.routeColor, style: `--sev-color:${b.routeColor}` });
-    const ring = svgEl('circle', { class: 'ring', r: 11 });
-    const hd = svgEl('g', { class: 'hd' });
-    hd.appendChild(svgEl('path', { class: 'heading', d: 'M0,-11 L2.8,-5.5 L-2.8,-5.5 Z' }));
-    const dot = svgEl('circle', { class: 'dot', r: 5.8, fill: b.routeColor });
-    const tag = svgEl('text', { class: 'tag', y: -16 });
-    tag.textContent = b.id;
-    g.append(hit, halo, ring, hd, dot, tag);
-    busLayer.appendChild(g);
-    markers.set(b.id, { g, hd, halo, dot, tag });
+  routeLines.clear();
+  mapFitted = false;
+
+  map = L.map(mapEl, {
+    zoomControl: false,
+    preferCanvas: true,
+    minZoom: 10,
+    maxZoom: 18,
+    attributionControl: true,
+  });
+  map.attributionControl.setPrefix(false);
+
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}.png', {
+    attribution: '&copy; <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a> &copy; <a href="https://carto.com/attributions" target="_blank" rel="noopener">CARTO</a>',
+    subdomains: 'abcd',
+    maxZoom: 19,
+  }).addTo(map);
+
+  routeLayer = L.layerGroup().addTo(map);
+  stopLayer = L.layerGroup().addTo(map);
+  hubLayer = L.layerGroup().addTo(map);
+  busLayer = L.layerGroup().addTo(map);
+  highlightLayer = L.layerGroup().addTo(map);
+
+  for (const r of state.routes) {
+    const line = L.polyline(r.shape, {
+      color: r.color,
+      weight: 2,
+      opacity: 0.5,
+      interactive: false,
+      lineCap: 'round',
+    }).addTo(routeLayer);
+    routeLines.set(r.id, line);
   }
 
-  applyViewport();
+  for (const h of state.hubs || []) {
+    const pos = hubPosition(h.id);
+    if (!pos) continue;
+    const icon = L.divIcon({
+      className: '',
+      html: `<div class="hub-marker"><i></i><span>${h.name}</span></div>`,
+      iconSize: [0, 0],
+      iconAnchor: [0, 0],
+    });
+    L.marker(pos, { icon, interactive: false, keyboard: false }).addTo(hubLayer);
+  }
+
+  for (const b of state.buses) {
+    const m = L.circleMarker([b.lat, b.lng], {
+      radius: 5,
+      weight: 1.2,
+      color: '#05090f',
+      fillColor: colorOf(b.routeId),
+      fillOpacity: 1,
+      opacity: 1,
+    }).addTo(busLayer);
+    m.on('click', () => selectBus(b.id));
+    m.on('mouseover', () => {
+      const bus = state.buses.find((x) => x.id === b.id);
+      if (!bus) return;
+      const route = state.routeById?.get(bus.routeId);
+      const pct = Math.round((bus.occupancy / (bus.capacity || 70)) * 100);
+      m.setTooltipContent(
+        `<b>${bus.id}</b> · ${route?.code || ''}<br><span>${bus.speed} km/h · ${pct}% ocupación · ${bus.driver || ''}</span>`,
+      );
+      m.openTooltip();
+    });
+    m.bindTooltip('', { direction: 'top', offset: [0, -4], opacity: 0.96 });
+    markers.set(b.id, m);
+  }
+
+  selectedRing = L.circleMarker([0, 0], {
+    radius: 10,
+    color: '#ffd489',
+    weight: 1.8,
+    fill: false,
+    interactive: false,
+  });
+
+  fitNetwork();
   updateRouteStyles();
+  updateMap();
+
+  map.on('zoomend', () => {
+    if (state.routeFilter !== 'all') updateStopLayer();
+  });
 }
 
-function applyViewport() {
-  if (viewport) viewport.setAttribute('transform', `translate(${vt.x} ${vt.y}) scale(${vt.k})`);
+function updateStopLayer() {
+  if (!stopLayer) return;
+  stopLayer.clearLayers();
+  if (state.routeFilter === 'all') return;
+  const route = state.routeById?.get(state.routeFilter);
+  if (!route) return;
+  route.stops.forEach((s) => {
+    L.circleMarker([s.lat, s.lng], {
+      radius: 3,
+      weight: 1,
+      color: '#08111c',
+      fillColor: s.hub ? '#ffb020' : '#7dd3fc',
+      fillOpacity: 1,
+      interactive: false,
+    }).addTo(stopLayer);
+  });
 }
 
 function updateRouteStyles() {
-  for (const path of $$('#routes .route-path')) {
-    const active = state.routeFilter === 'all' || path.dataset.route === state.routeFilter;
-    path.classList.toggle('dim', !active);
-    path.setAttribute('stroke-width', active ? 3.2 : 1.8);
-    path.setAttribute('opacity', active ? 0.9 : 0.25);
-    path.setAttribute('filter', active ? 'url(#routeGlow)' : '');
+  for (const [id, line] of routeLines) {
+    const active = state.routeFilter === 'all' || id === state.routeFilter;
+    const filtered = state.routeFilter !== 'all';
+    line.setStyle({
+      weight: active ? (filtered ? 4 : 2) : 1.4,
+      opacity: active ? (filtered ? 0.95 : 0.5) : 0.1,
+    });
+    if (active && filtered) line.bringToFront();
   }
+  updateStopLayer();
 }
 
 function updateMap() {
+  const filterActive = state.routeFilter !== 'all';
   for (const b of state.buses) {
     const m = markers.get(b.id);
     if (!m) continue;
-    const p = project(b.lat, b.lng);
-    m.g.setAttribute('transform', `translate(${p.x.toFixed(1)} ${p.y.toFixed(1)})`);
-    m.hd.setAttribute('transform', `rotate(${b.heading.toFixed(0)})`);
-    m.g.classList.toggle('selected', b.id === state.selectedBusId);
-    m.g.classList.toggle('alerting', Boolean(b.alertId));
-    const haloColor = b.alertSeverity === 'alta' ? '#ef4444' : b.alertSeverity === 'media' ? '#f59e0b' : b.routeColor;
-    m.halo.style.setProperty('--sev-color', haloColor);
-    m.halo.setAttribute('fill', haloColor);
-    m.g.style.opacity = state.routeFilter === 'all' || b.routeId === state.routeFilter ? '1' : '0.35';
-    m.tag.textContent = b.id;
+    m.setLatLng([b.lat, b.lng]);
+    const alertColor = b.alertSeverity === 'alta'
+      ? '#ef4444'
+      : b.alertSeverity === 'media'
+        ? '#f59e0b'
+        : null;
+    const dim = filterActive && b.routeId !== state.routeFilter;
+    m.setStyle({
+      fillColor: alertColor || colorOf(b.routeId),
+      opacity: dim ? 0.25 : 1,
+      fillOpacity: dim ? 0.3 : 1,
+    });
+  }
+
+  const selected = state.buses.find((b) => b.id === state.selectedBusId);
+  if (selected && selectedRing) {
+    selectedRing.setLatLng([selected.lat, selected.lng]);
+    if (!highlightLayer.hasLayer(selectedRing)) selectedRing.addTo(highlightLayer);
+  } else if (selectedRing && highlightLayer.hasLayer(selectedRing)) {
+    highlightLayer.removeLayer(selectedRing);
   }
 }
 
@@ -474,106 +496,26 @@ function selectBus(id) {
   if (item) item.el.scrollIntoView({ block: 'nearest' });
 }
 
-function clientToSvg(evt) {
-  const pt = svg.createSVGPoint();
-  pt.x = evt.clientX;
-  pt.y = evt.clientY;
-  return pt.matrixTransform(svg.getScreenCTM().inverse());
-}
-
-function zoomAt(p, factor) {
-  const k2 = Math.max(0.7, Math.min(6, vt.k * factor));
-  vt.x = p.x - (p.x - vt.x) * (k2 / vt.k);
-  vt.y = p.y - (p.y - vt.y) * (k2 / vt.k);
-  vt.k = k2;
-  applyViewport();
-}
-
 function bindMapControls() {
-  mapCanvas.addEventListener('wheel', (e) => {
-    e.preventDefault();
-    zoomAt(clientToSvg(e), e.deltaY < 0 ? 1.15 : 1 / 1.15);
-  }, { passive: false });
-
-  svg.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0) return;
-    dragged = false;
-    if (e.target.closest('.bus')) return;
-    drag = { x: e.clientX, y: e.clientY, vx: vt.x, vy: vt.y };
-    svg.setPointerCapture(e.pointerId);
-  });
-
-  svg.addEventListener('pointermove', (e) => {
-    if (!drag) return;
-    const dx = e.clientX - drag.x;
-    const dy = e.clientY - drag.y;
-    if (Math.abs(dx) + Math.abs(dy) > 4) {
-      dragged = true;
-      svg.classList.add('dragging');
-      tooltip.classList.remove('show');
-    }
-    const scale = MAP_W / svg.clientWidth;
-    vt.x = drag.vx + dx * scale;
-    vt.y = drag.vy + dy * scale;
-    applyViewport();
-  });
-
-  const endDrag = (e) => {
-    if (drag) {
-      svg.releasePointerCapture?.(e.pointerId);
-    }
-    drag = null;
-    svg.classList.remove('dragging');
-  };
-  svg.addEventListener('pointerup', endDrag);
-  svg.addEventListener('pointercancel', endDrag);
-
-  svg.addEventListener('click', (e) => {
-    if (dragged) return;
-    const g = e.target.closest('.bus');
-    if (g) selectBus(g.dataset.id);
-  });
-
-  svg.addEventListener('mouseover', (e) => {
-    const g = e.target.closest('.bus');
-    if (!g) return;
-    const bus = state.buses.find((b) => b.id === g.dataset.id);
-    if (!bus) return;
-    const pct = Math.round((bus.occupancy / bus.capacity) * 100);
-    tooltip.innerHTML = `<b>${bus.id}</b> · ${bus.routeCode}<br><span>${bus.speed} km/h · ${pct}% ocupación · ${bus.driver}</span>`;
-    tooltip.classList.add('show');
-    const rect = mapCanvas.getBoundingClientRect();
-    tooltip.style.left = `${e.clientX - rect.left}px`;
-    tooltip.style.top = `${e.clientY - rect.top - 6}px`;
-  });
-
-  svg.addEventListener('mousemove', (e) => {
-    if (!tooltip.classList.contains('show')) return;
-    const rect = mapCanvas.getBoundingClientRect();
-    tooltip.style.left = `${e.clientX - rect.left}px`;
-    tooltip.style.top = `${e.clientY - rect.top - 6}px`;
-  });
-
-  svg.addEventListener('mouseout', (e) => {
-    if (e.target.closest('.bus')) tooltip.classList.remove('show');
-  });
-
-  $('#zoom-in').addEventListener('click', () => zoomAt({ x: MAP_W / 2, y: MAP_H / 2 }, 1.25));
-  $('#zoom-out').addEventListener('click', () => zoomAt({ x: MAP_W / 2, y: MAP_H / 2 }, 1 / 1.25));
+  $('#zoom-in').addEventListener('click', () => map?.zoomIn());
+  $('#zoom-out').addEventListener('click', () => map?.zoomOut());
   $('#zoom-reset').addEventListener('click', () => {
-    vt = { x: 0, y: 0, k: 1 };
-    applyViewport();
+    if (!map) return;
+    map.invalidateSize();
+    fitNetwork();
   });
 }
 
 /* ══════════════════════════ leyenda del mapa ══════════════════════════ */
 
 function renderLegend() {
-  $('#map-legend').innerHTML = state.routes.map((r) => `
-    <button class="legend-item ${state.routeFilter !== 'all' && state.routeFilter !== r.id ? 'dim' : ''}" data-route="${r.id}">
-      <span class="legend-dot" style="background:${r.color}"></span>${r.code}
-    </button>`).join('');
+  $('#map-legend').innerHTML = `
+    <span class="legend-item"><span class="legend-dot" style="background:#38bdf8"></span>Red de buses OSM</span>
+    <span class="legend-item"><span class="legend-dot" style="background:#0b1220;border:1px solid #ffb020;transform:rotate(45deg)"></span>Nodo</span>
+    <span class="legend-item"><span class="legend-dot" style="background:#ef4444"></span>Alerta</span>
+    <span class="legend-item" style="cursor:default">${state.routes.length} rutas · ${state.buses.length} buses</span>`;
 }
+
 
 /* ══════════════════════════ alertas ══════════════════════════ */
 
@@ -737,12 +679,8 @@ function renderDetail(force = false) {
 
   $('#btn-locate').addEventListener('click', () => {
     const b = state.buses.find((x) => x.id === state.selectedBusId);
-    if (!b) return;
-    const p = project(b.lat, b.lng);
-    vt.k = Math.max(vt.k, 1.6);
-    vt.x = MAP_W / 2 - p.x * vt.k;
-    vt.y = MAP_H / 2 - p.y * vt.k;
-    applyViewport();
+    if (!b || !map) return;
+    map.setView([b.lat, b.lng], Math.max(map.getZoom(), 15), { animate: true });
   });
 
   const panicBtn = $('#btn-panic');
@@ -1634,6 +1572,11 @@ function switchTab(tab) {
   }
   if (tab === 'ops') {
     renderDetail(true);
+    setTimeout(() => {
+      if (!map) return;
+      map.invalidateSize();
+      if (!mapFitted) fitNetwork();
+    }, 80);
   } else {
     stopCams();
   }
@@ -1654,25 +1597,55 @@ function renderAll() {
   renderRoutes();
   renderFleet();
   renderAlerts();
+  renderLegend();
   updateMap();
   renderDetail();
 }
 
+function applyNetwork(net) {
+  state.network = net;
+  state.routes = (net.routes || []).map((r) => ({ ...r, buses: 0, headway: r.headwayMin }));
+  state.routeById = new Map(state.routes.map((r) => [r.id, r]));
+  state.hubs = net.hubs || [];
+  state.busMeta = new Map((net.buses || []).map((b) => [b.id, b]));
+  computeBounds();
+  renderLegend();
+  buildMap();
+}
+
 function applyState(data) {
-  if (!data || !Array.isArray(data.buses)) return;
-  const firstLoad = state.routes.length === 0;
-  state.routes = data.routes;
-  state.buses = data.buses;
+  if (!data || !Array.isArray(data.buses) || !state.network) return;
+
+  const dynamic = new Map((data.routes || []).map((r) => [r.id, r]));
+  for (const route of state.routes) {
+    const d = dynamic.get(route.id);
+    if (d) {
+      route.buses = d.buses;
+      route.headway = d.headway;
+    }
+  }
+
+  state.buses = data.buses.map((b) => {
+    const meta = state.busMeta.get(b.id) || {};
+    const route = state.routeById.get(b.routeId);
+    return {
+      ...b,
+      plate: meta.plate || '—',
+      driver: meta.driver || '—',
+      capacity: meta.capacity || 70,
+      model: meta.model || 'Bus urbano',
+      year: meta.year || 2018,
+      cameras: meta.cameras || 4,
+      routeCode: route?.code || b.routeId,
+      routeName: route?.name || '',
+      routeColor: route?.color || '#38bdf8',
+      status: b.commsLost ? 'sin señal' : b.alertId ? 'alerta' : b.dwelling ? 'en parada' : 'en ruta',
+    };
+  });
+
   state.alerts = data.alerts;
   state.kpis = data.kpis;
-  state.hubs = data.hubs || [];
-
-  if (firstLoad) {
-    computeBounds();
-    renderLegend();
-    buildMap();
-    setLive(true);
-  }
+  setLive(true);
   renderAll();
 }
 

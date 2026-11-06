@@ -234,6 +234,10 @@ async function handleApi(req, res, url) {
     return sendJSON(res, 200, { user });
   }
 
+  if (pathname === '/api/network' && method === 'GET') {
+    return sendJSON(res, 200, sim.getNetwork());
+  }
+
   if (pathname === '/api/state' && method === 'GET') {
     return sendJSON(res, 200, sim.getState());
   }

@@ -133,6 +133,7 @@ async function handleApi(url, init) {
   }
   if (!user) return json({ error: 'No autenticado' }, 401);
 
+  if (path === '/api/network') return json(sim.getNetwork());
   if (path === '/api/state') return json(sim.getState());
   if (path === '/api/reports') return json(sim.getReports());
   if (path === '/api/stops') return json(stopStats());
@@ -179,9 +180,15 @@ class DemoEventSource {
     this.url = url;
     this.readyState = 0;
     this.listeners = {};
+    this._tick = 0;
     this._unsub = sim.onTick((type, payload) => {
-      if (type === 'tick') this.emit('tick', payload);
-      else if (type === 'alert') this.emit('alert', payload);
+      if (type === 'tick') {
+        // En la demo pública se emite cada 2 s para no saturar la red.
+        this._tick += 1;
+        if (this._tick % 2 === 0) this.emit('tick', payload);
+      } else if (type === 'alert') {
+        this.emit('alert', payload);
+      }
     });
     setTimeout(() => {
       this.readyState = 1;

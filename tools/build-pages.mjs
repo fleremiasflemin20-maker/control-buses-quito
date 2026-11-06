@@ -21,7 +21,12 @@ copy(path.join(ROOT, 'public', 'styles.css'), path.join(PAGES, 'styles.css'));
 copy(path.join(ROOT, 'public', 'app.js'), path.join(PAGES, 'app.js'));
 copy(path.join(ROOT, 'server', 'sim.js'), path.join(PAGES, 'sim.js'));
 copy(path.join(ROOT, 'server', 'data.js'), path.join(PAGES, 'data.js'));
+copy(path.join(ROOT, 'server', 'network.js'), path.join(PAGES, 'network.js'));
 copy(path.join(ROOT, 'tools', 'pages-src', 'mock-api.js'), path.join(PAGES, 'mock-api.js'));
+
+for (const file of ['leaflet.js', 'leaflet.css']) {
+  copy(path.join(ROOT, 'public', 'vendor', file), path.join(PAGES, 'vendor', file));
+}
 
 const manual = path.join(ROOT, 'docs', 'Manual-Instalacion-a-Bordo.pdf');
 if (fs.existsSync(manual)) {
